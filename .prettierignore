@@ -1,0 +1,6 @@
+node_modules
+/.vscode
+/packages/*/dist
+/packages/*/bin
+/CHANGELOG.md
+/packages/*/CHANGELOG.md

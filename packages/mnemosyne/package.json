@@ -1,0 +1,51 @@
+{
+  "name": "@soteria/mnemosyne",
+  "version": "1.0.0-alpha.1",
+  "description": "Takes a video feed and uploads it in chunks to a WebDAV server.",
+  "type": "module",
+  "bin": {
+    "mnemosyne": "mnemosyne.cjs"
+  },
+  "scripts": {
+    "clean": "test -d bin && rm -r bin || true",
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "prepublish": "npm run clean && npm run build",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sciactive/soteria.git"
+  },
+  "keywords": [
+    "soteria",
+    "mnemosyne",
+    "security camera",
+    "camera"
+  ],
+  "author": "Hunter Perrin <hperrin@gmail.com>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/sciactive/soteria/issues"
+  },
+  "homepage": "https://github.com/sciactive/soteria#readme",
+  "devDependencies": {
+    "@tsconfig/recommended": "^1.0.2",
+    "@types/jest": "^29.5.4",
+    "@types/update-notifier": "^6.0.5",
+    "jest": "^29.6.4",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "commander": "^11.0.0",
+    "update-notifier": "^6.0.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

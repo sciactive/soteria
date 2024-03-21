@@ -1,0 +1,47 @@
+{
+  "name": "soteria-repo",
+  "version": "0.0.0",
+  "description": "A WebDAV based personal cloud security camera system.",
+  "type": "module",
+  "scripts": {
+    "format": "prettier --write .",
+    "lint": "prettier --check .",
+    "clean": "lerna run clean",
+    "build": "lerna run build",
+    "watch": "lerna run watch --concurrency=20",
+    "prepare": "husky install && npm run lint",
+    "postinstall": "npm run build",
+    "test": "lerna run test --concurrency=1 --stream --no-prefix --no-bail -- -- --passWithNoTests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sciactive/soteria.git"
+  },
+  "author": "Hunter Perrin <hperrin@gmail.com>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/sciactive/soteria/issues"
+  },
+  "homepage": "https://github.com/sciactive/soteria#readme",
+  "workspaces": [
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@commitlint/cli": "^17.7.1",
+    "@commitlint/config-conventional": "^17.7.0",
+    "@tsconfig/recommended": "^1.0.2",
+    "@types/debug": "^4.1.8",
+    "debug": "^4.3.4",
+    "husky": "^8.0.3",
+    "lerna": "^7.2.0",
+    "lint-staged": "^14.0.1",
+    "prettier": "^2.8.8",
+    "prettier-plugin-svelte": "^2.10.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "lint-staged": {
+    "**/*": "prettier --write --ignore-unknown"
+  }
+}
