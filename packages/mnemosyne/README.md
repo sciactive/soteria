@@ -7,6 +7,14 @@ Mnemosyne (named after the [Greek goddess of memory](https://en.wikipedia.org/wi
 # Installation
 
 ```sh
+sudo apt install libv4l-dev
+# or
+sudo dnf install libv4l-devel
+
+# sudo apt-get install libavcodec-dev libavformat-dev libavdevice-dev libavfilter-dev libavutil-dev libpostproc-dev libswresample-dev libswscale-dev
+# # or
+# sudo dnf install libavcodec-free libavcodec-free-devel libavformat-free libavformat-free-devel libavdevice-free libavdevice-free-devel libavfilter-free libavfilter-free-devel libavutil-free libavutil-free-devel libpostproc-free libpostproc-free-devel libswresample-free libswresample-free-devel libswscale-free libswscale-free-devel
+
 npm i -s @soteria/mnemosyne
 ```
 
@@ -17,6 +25,13 @@ Run Mnemosyne from the command line.
 ```sh
 npx mnemosyne
 ```
+
+# Formats
+
+Any [v4l2](https://docs.kernel.org/userspace-api/media/v4l/videodev.html#videodev) compatible format.
+
+- [MJPEG](https://docs.kernel.org/userspace-api/media/v4l/pixfmt-reserved.html#v4l2-pix-fmt-mjpeg)
+- [H264](https://docs.kernel.org/userspace-api/media/v4l/pixfmt-compressed.html#v4l2-pix-fmt-h264)
 
 # License
 

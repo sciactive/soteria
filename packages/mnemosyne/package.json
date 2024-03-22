@@ -42,8 +42,15 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
+    "@libav.js/variant-webm-vp9": "^5.1.6",
+    "@soteria/libav.js": "^1.0.0-alpha.1",
     "commander": "^11.0.0",
-    "update-notifier": "^6.0.2"
+    "libavjs-webcodecs-polyfill": "^0.5.1",
+    "libv4l2-ts": "^1.0.1",
+    "mp4-muxer": "^4.0.1",
+    "update-notifier": "^6.0.2",
+    "v4l2-camera-ts": "^1.0.1",
+    "webm-muxer": "^4.0.1"
   },
   "engines": {
     "node": ">=18"
