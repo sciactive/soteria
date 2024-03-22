@@ -7,31 +7,73 @@ Mnemosyne (named after the [Greek goddess of memory](https://en.wikipedia.org/wi
 # Installation
 
 ```sh
-sudo apt install libv4l-dev
-# or
-sudo dnf install libv4l-devel
+# Install dependencies.
 
-# sudo apt-get install libavcodec-dev libavformat-dev libavdevice-dev libavfilter-dev libavutil-dev libpostproc-dev libswresample-dev libswscale-dev
-# # or
-# sudo dnf install libavcodec-free libavcodec-free-devel libavformat-free libavformat-free-devel libavdevice-free libavdevice-free-devel libavfilter-free libavfilter-free-devel libavutil-free libavutil-free-devel libpostproc-free libpostproc-free-devel libswresample-free libswresample-free-devel libswscale-free libswscale-free-devel
+# Ubuntu/Debian
+sudo apt install ffmpeg libv4l-dev alsa-utils v4l-utils
+# Fedora/Red Hat
+sudo dnf install ffmpeg libv4l-devel alsa-utils v4l-utils
+
+# Install Mnemosyne
 
 npm i -s @soteria/mnemosyne
 ```
 
 # Usage
 
+First you need to find your audio device. To list your audio devices:
+
+```sh
+arecord --list-devices
+```
+
+You'll see something like:
+
+```
+**** List of CAPTURE Hardware Devices ****
+card 0: sofhdadsp [sof-hda-dsp], device 0: HDA Analog (*) []
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0
+card 0: sofhdadsp [sof-hda-dsp], device 6: DMIC (*) []
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0
+card 0: sofhdadsp [sof-hda-dsp], device 7: DMIC16kHz (*) []
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0
+```
+
+In this case, I want the 16kHz digital microphone (DMIC16kHz). It's on card 0 and it's device 7, so my audio device is:
+
+```
+plughw:0,7
+```
+
+Now you need to find your video device. To list your video devices:
+
+```sh
+v4l2-ctl --list-devices
+```
+
+You'll see something like:
+
+```
+HD WebCam: HD WebCam (usb-0000:00:14.0-7):
+        /dev/video0
+        /dev/video1
+        /dev/media0
+```
+
+In this case, I want the HD WebCam. It's available as /dev/video0, so my video device is:
+
+```
+/dev/video0
+```
+
 Run Mnemosyne from the command line.
 
 ```sh
-npx mnemosyne
+npx mnemosyne -s https://mywebdavserver.example.com --audio-device plughw:0,7 --video-device /dev/video0
 ```
-
-# Formats
-
-Any [v4l2](https://docs.kernel.org/userspace-api/media/v4l/videodev.html#videodev) compatible format.
-
-- [MJPEG](https://docs.kernel.org/userspace-api/media/v4l/pixfmt-reserved.html#v4l2-pix-fmt-mjpeg)
-- [H264](https://docs.kernel.org/userspace-api/media/v4l/pixfmt-compressed.html#v4l2-pix-fmt-h264)
 
 # License
 

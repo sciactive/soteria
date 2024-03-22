@@ -2,19 +2,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { program } from 'commander';
 import updateNotifier from 'update-notifier';
-import LibAV from '@soteria/libav.js';
 import { Camera } from 'v4l2-camera-ts';
-import {
-  load as LibAVWebCodecsLoad,
-  VideoEncoder,
-  VideoFrame,
-  AudioEncoder,
-} from 'libavjs-webcodecs-polyfill';
-import { Muxer, StreamTarget } from 'webm-muxer';
-import './CustomEventPolyfill.js';
-import './GeometryPolyfills.js';
+import NodeMic from 'node-mic';
+import JMuxer from 'jmuxer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +17,8 @@ const pkg = JSON.parse(
 );
 
 type Conf = {
+  audioDevice: string;
+  videoDevice: string;
   server: string;
   updateCheck: boolean;
 };
@@ -33,22 +28,17 @@ program
   .description(pkg.description)
   .version(pkg.version, '-v, --version', 'Print the current version');
 
-// program.command('list-codecs').action(async () => {
-//   const libav = await LibAV.LibAV();
-
-//   let descriptor = await libav.avcodec_descriptor_next(0);
-
-//   while (descriptor != 0) {
-//     // const id = await libav.avcodec_find_encoder(descriptor);
-//     // const name = await libav.avcodec_get_name(descriptor);
-//     console.log(descriptor);
-//     descriptor = await libav.avcodec_descriptor_next(descriptor);
-//   }
-
-//   process.exit(0);
-// });
-
 program
+  .option(
+    '--audio-device <device>',
+    'The name of the audio device.',
+    'plughw:0,0'
+  )
+  .option(
+    '--video-device <device>',
+    'The filename of the video device.',
+    '/dev/video0'
+  )
   .option('-s, --server <host>', 'The address of the WebDAV server.')
   .option('--no-update-check', "Don't check for updates.");
 
@@ -56,6 +46,8 @@ program.addHelpText(
   'after',
   `
 Environment Variables:
+  AUDIO_DEVICE    Same as --audio-device.
+  VIDEO_DEVICE    Same as --video-device.
   SERVER          Same as --server.
   UPDATE_CHECK    Same as --no-update-check when set to "false", "off" or "0".
 
@@ -71,191 +63,201 @@ https://sciactive.com/`
 );
 
 try {
+  // Parse args.
+  program.parse();
+  const options = program.opts();
+  let { audioDevice, videoDevice, server, updateCheck } = {
+    server: process.env.SERVER,
+    updateCheck: !['false', 'off', '0'].includes(
+      (process.env.UPDATE_CHECK || '').toLowerCase()
+    ),
+    ...options,
+    ...(process.env.AUDIO_DEVICE != null
+      ? {
+          audioDevice: process.env.AUDIO_DEVICE,
+        }
+      : {}),
+    ...(process.env.VIDEO_DEVICE != null
+      ? {
+          videoDevice: process.env.VIDEO_DEVICE,
+        }
+      : {}),
+  } as Conf;
+
+  if (updateCheck) {
+    updateNotifier({ pkg }).notify({ defer: false });
+  }
+
+  if (server == null) {
+    throw new Error('WebDAV server address is required.');
+  }
+
   async function main() {
-    // Parse args.
-    await program.parseAsync();
-    const options = program.opts();
-    let { server, updateCheck } = {
-      server: process.env.SERVER,
-      updateCheck: !['false', 'off', '0'].includes(
-        (process.env.UPDATE_CHECK || '').toLowerCase()
-      ),
-      ...options,
-    } as Conf;
-
-    if (updateCheck) {
-      updateNotifier({ pkg }).notify({ defer: false });
-    }
-
-    if (server == null) {
-      throw new Error('WebDAV server address is required.');
-    }
-
-    // var wasmdataurl =
-    //   'data:application/wasm;base64,' +
-    //   (await fsp.readFile(wasmurl)).toString('base64');
-    // var wasmfileurl = 'file://' + wasmurl;
-
-    await LibAVWebCodecsLoad({
-      LibAV: LibAV,
-      polyfill: false,
-      libavOptions: {
-        noworker: true,
-        nowasm: true,
-        // variant: 'vp9-opus',
-        // wasmurl: wasmfileurl,
-      },
-    });
-
+    // First, open the camera, because we need the framerate for the muxer.
     const cam = new Camera();
-
-    cam.open('/dev/video2');
-
-    // the format can only be set before starting
+    cam.open(videoDevice);
     cam.setFormat({
       width: 1280,
       height: 720,
       pixelFormatStr: 'YU12',
-      // pixelFormatStr: 'YV12',
-      // pixelFormatStr: 'YUYV',
-      // pixelFormatStr: '422P',
-      fps: { numerator: 1, denominator: 10 },
+      fps: { numerator: 1, denominator: 30 },
     });
-    // const fmt = new v4l2_format();
-    // fmt.type = v4l2_buf_type.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-
-    // fmt.fmt.pix.width = 1280;
-    // fmt.fmt.pix.height = 720;
-    // fmt.fmt.pix.pixelformat = format.stringToFourcc('YUYV');
-
-    // // @ts-ignore
-    // v4l2_ioctl(cam._fd, ioctl.VIDIOC_S_FMT, fmt.ref());
-
-    // const parm = new v4l2_streamparm();
-
-    // parm.type = v4l2_buf_type.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    // parm.parm.capture.timeperframe.numerator = 1;
-    // parm.parm.capture.timeperframe.denominator = 30;
-
-    // // @ts-ignore
-    // v4l2_ioctl(cam._fd, ioctl.VIDIOC_S_PARM, parm.ref());
 
     const format = cam.queryFormat();
     console.log(format);
 
-    // allocate memory-mapped buffers and turn the stream on
-    cam.start(32);
+    const [ffmpegInputOptions, ffmpegTruncateFrame] =
+      format.pixelFormatStr === 'YUYV'
+        ? ['-f rawvideo -pix_fmt:v yuyv422', true]
+        : format.pixelFormatStr === 'YU12'
+        ? ['-f rawvideo -pix_fmt:v yuv420p', true]
+        : format.pixelFormatStr === 'MJPG'
+        ? [`-f jpeg_pipe`, false]
+        : [null, false];
 
-    const fhandle = await fsp.open(`./test/video.webm`, 'w');
-    const writeStream = fhandle.createWriteStream();
-
-    let currentPosition = 0;
-    let muxer = new Muxer({
-      target: new StreamTarget({
-        chunked: false,
-        onHeader(data, position) {
-          if (position !== currentPosition) {
-            console.log('out of position header');
-          }
-          console.log('header', { position });
-          currentPosition += data.length;
-          writeStream.write(data);
-        },
-        onData(data, position) {
-          if (position !== currentPosition) {
-            console.log('out of position data');
-          }
-          console.log('data', { position });
-          currentPosition += data.length;
-          writeStream.write(data);
-        },
-        onCluster(data, position, timestamp) {
-          if (position !== currentPosition) {
-            console.log('out of position cluster');
-          }
-          console.log('cluster', { position, timestamp });
-          currentPosition += data.length;
-          writeStream.write(data);
-        },
-      }),
-      video: {
-        codec: 'V_VP9',
-        width: format.width,
-        height: format.height,
-      },
-      streaming: false,
-      type: 'webm',
-    });
-
-    let videoEncoder = new VideoEncoder({
-      output: (chunk, meta) => {
-        muxer.addVideoChunk(chunk, meta as EncodedVideoChunkMetadata);
-      },
-      error: (e) => console.error(e),
-    });
-
-    videoEncoder.configure({
-      codec: 'vp09.00.41.08.0',
-      // codec: 'vp09.01.41.08.2',
-
-      width: format.width,
-      height: format.height,
-      bitrate: 3000 * 1000,
-      framerate: format.fpsDenominator / format.fpsNumerator,
-      BitrateMode: 'constant',
-
-      hardwareAcceleration: 'prefer-hardware',
-      latencyMode: 'realtime',
-    });
-
-    for (let i = 0; i < 200; i++) {
-      // asynchronously wait until the camera fd is readable
-      // and then exchange one of the memory-mapped buffers
-      console.log(i, 'start');
-      const frame = await cam.getNextFrame();
-      console.log(i, 'after frame');
-
-      const videoFrame = new VideoFrame(Buffer.from(frame), {
-        format: 'I420',
-        // format: 'I422',
-        colorSpace: {
-          transfer: 'bt709',
-        },
-        codedWidth: format.width,
-        codedHeight: format.height,
-        timestamp: Math.floor(
-          i * ((format.fpsNumerator / format.fpsDenominator) * 1000000)
-        ),
-        duration: Math.floor(
-          (format.fpsNumerator / format.fpsDenominator) * 1000000
-        ),
-      });
-      console.log(i, 'after videoframe');
-
-      videoEncoder.encode(videoFrame);
-      console.log(i, 'after encode');
-
-      // if (i % 24) {
-      //   cam.stop();
-      //   cam.start();
-      //   console.log(i, 'after restart cam');
-      // }
+    if (ffmpegInputOptions == null) {
+      console.error("Error: Couldn't set pixel format to a supported format.");
+      process.exit(1);
     }
 
-    // turn the stream off and unmap all buffers
+    // Open the output stream.
+    const fhandle = await fsp.open(`./test.mp4`, 'w');
+    const writeStream = fhandle.createWriteStream();
+    writeStream.on('finish', () => {
+      console.log('Stream finished.');
+    });
+    writeStream.on('close', async () => {
+      console.log('Stream closed.');
+
+      await fhandle.close();
+
+      console.log('File handle closed.');
+    });
+
+    // Muxer
+
+    const muxer = new JMuxer({
+      node: 'stream',
+      mode: 'both',
+      debug: true,
+      fps: format.fpsDenominator / format.fpsNumerator,
+    });
+    const muxStream = muxer.createStream();
+
+    // Audio
+
+    // Audio transcoding stream.
+    const ffmpegAudioArgs = `-f s16le -ar 16000 -ac 1 -i - -f adts -c:a aac -`;
+    console.log('FFMPEG Audio Args:', ffmpegAudioArgs);
+    const ffmpegAudio = spawn('ffmpeg', ffmpegAudioArgs.split(/\s+/));
+    ffmpegAudio.stdout.on('data', (data) => {
+      muxer.feed({
+        audio: new Uint8Array(data),
+      });
+    });
+    ffmpegAudio.stderr.on('data', (data) => {
+      console.error(`audio: ${data}`);
+    });
+    ffmpegAudio.on('close', (code) => {
+      console.log(`audio ffmpeg exited with code ${code}`);
+      muxStream.end();
+    });
+
+    // Audio input stream.
+    const mic = new NodeMic({
+      bitwidth: 16,
+      endian: 'little',
+      rate: 16000,
+      channels: 1,
+      threshold: 6,
+      device: audioDevice,
+    });
+    const micStream = mic.getAudioStream();
+    micStream.on('data', async (data) => {
+      if (!ffmpegAudio.stdin.write(data)) {
+        await new Promise((resolve) => {
+          ffmpegAudio.stdin.once('drain', resolve);
+        });
+      }
+    });
+    micStream.on('error', (err) => {
+      console.log(`mic error: ${err.message}`);
+    });
+
+    // Video
+
+    // Video transcoding stream.
+    const ffmpegVideoArgs = `${ffmpegInputOptions} -video_size ${
+      format.width
+    }x${format.height} -framerate ${
+      format.fpsDenominator / format.fpsNumerator
+    } -s:v ${format.width}x${format.height} -r:v ${
+      format.fpsDenominator / format.fpsNumerator
+    } -i - -f h264 -c:v libx264 -preset veryfast -tune zerolatency -crf 22 -bsf:v h264_mp4toannexb -`;
+    console.log('FFMPEG Video Args:', ffmpegVideoArgs);
+    const ffmpegVideo = spawn('ffmpeg', ffmpegVideoArgs.split(/\s+/));
+    ffmpegVideo.stdout.on('data', (data) => {
+      muxer.feed({
+        video: new Uint8Array(data),
+      });
+    });
+    ffmpegVideo.stderr.on('data', (data) => {
+      console.error(`video: ${data}`);
+    });
+    ffmpegVideo.on('close', (code) => {
+      console.log(`video ffmpeg exited with code ${code}`);
+      muxStream.end();
+    });
+
+    // Muxer stream.
+    muxStream.on('data', (data) => {
+      if (!writeStream.write(data)) {
+        ffmpegVideo.stdout.pause();
+        ffmpegAudio.stdout.pause();
+        writeStream.once('drain', () => {
+          ffmpegVideo.stdout.resume();
+          ffmpegAudio.stdout.resume();
+        });
+      }
+    });
+    muxStream.on('error', (data) => {
+      console.error(`muxerr: ${data}`);
+    });
+    muxStream.on('close', () => {
+      writeStream.end();
+    });
+
+    // Allocate memory-mapped buffers and turn the stream on
+    cam.start(32);
+    mic.start();
+
+    for (let i = 0; i < 200; i++) {
+      // Asynchronously wait until the camera fd is readable and then exchange
+      // one of the memory-mapped buffers
+      const frame = await cam.getNextFrame();
+
+      // Truncate the buffer to the right image size if needed.
+      let buffer = Buffer.from(
+        !ffmpegTruncateFrame || frame.length === format.sizeImage
+          ? frame
+          : frame.subarray(0, format.sizeImage)
+      );
+
+      if (!ffmpegVideo.stdin.write(buffer)) {
+        await new Promise((resolve) => {
+          ffmpegVideo.stdin.once('drain', resolve);
+        });
+      }
+    }
+
+    // Turn the stream off and unmap all buffers.
     cam.stop();
+    mic.stop();
     cam.close();
 
-    console.log('flushing');
-    await videoEncoder.flush();
-
-    console.log('finalizing');
-    muxer.finalize();
-
-    writeStream.end();
-
-    // let { buffer } = muxer.target; // Buffer contains final MP4 file
-    // await fsp.writeFile(`./test/video.webm`, new Uint8Array(buffer));
+    // End the transcode streams.
+    ffmpegVideo.stdin.end();
+    ffmpegAudio.stdin.end();
   }
 
   main();
