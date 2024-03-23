@@ -43,6 +43,7 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
+    "audify": "^1.8.2",
     "commander": "^11.0.0",
     "jmuxer": "^2.0.5",
     "libv4l2-ts": "^1.0.1",
