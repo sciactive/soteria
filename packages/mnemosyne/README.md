@@ -10,9 +10,9 @@ Mnemosyne (named after the [Greek goddess of memory](https://en.wikipedia.org/wi
 # Install dependencies.
 
 # Ubuntu/Debian
-sudo apt install ffmpeg libv4l-dev alsa-utils v4l-utils
+sudo apt install ffmpeg libv4l-dev v4l-utils
 # Fedora/Red Hat
-sudo dnf install ffmpeg libv4l-devel alsa-utils v4l-utils
+sudo dnf install ffmpeg libv4l-devel v4l-utils
 
 # Install Mnemosyne
 
@@ -24,6 +24,7 @@ npm i -s @soteria/mnemosyne
 First you need to find your audio device. To list your audio devices:
 
 ```sh
+# TODO: update this to whatever audify expects
 arecord --list-devices
 ```
 

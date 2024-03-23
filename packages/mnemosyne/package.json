@@ -47,7 +47,6 @@
     "commander": "^11.0.0",
     "jmuxer": "^2.0.5",
     "libv4l2-ts": "^1.0.1",
-    "node-mic": "^1.0.1",
     "update-notifier": "^6.0.2",
     "v4l2-camera-ts": "^1.0.1"
   },

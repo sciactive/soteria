@@ -6,7 +6,6 @@ import { spawn } from 'node:child_process';
 import { program } from 'commander';
 import updateNotifier from 'update-notifier';
 import { Camera } from 'v4l2-camera-ts';
-// import NodeMic from 'node-mic';
 import audify from 'audify';
 import JMuxer from 'jmuxer';
 
@@ -138,18 +137,16 @@ try {
     });
 
     // Muxer
-
     const muxer = new JMuxer({
       node: 'stream',
       mode: 'both',
+      flushingTime: 0,
       debug: true,
       // @ts-ignore
       // readFpsFromTrack: true,
       fps: format.fpsDenominator / format.fpsNumerator,
     });
     const muxStream = muxer.createStream();
-
-    // Audio
 
     // Audio input stream.
     const mic = new RtAudio();
@@ -175,9 +172,14 @@ try {
     console.log('Audio Device:', defaultInputDevice);
 
     // Audio transcoding stream.
-    const ffmpegAudioArgs = `-hide_banner -f s16le -ar 16000 -ac 1 -i - -f adts -c:a aac -filter:a asetnsamples=n=1024:p=0 -`;
+    const ffmpegAudioArgs = `-hide_banner -f s16le -ar 16000 -ac 1 -i - -f adts -c:a aac`;
     console.log('FFMPEG Audio Args:', ffmpegAudioArgs);
-    const ffmpegAudio = spawn('ffmpeg', ffmpegAudioArgs.split(/\s+/));
+    const ffmpegAudio = spawn('ffmpeg', [
+      ...ffmpegAudioArgs.split(/\s+/),
+      '-filter:a',
+      "asetpts='(RTCTIME - RTCSTART) / (TB * 1000000)',asetnsamples=n=1024:p=0",
+      '-',
+    ]);
     ffmpegAudio.stdout.on('data', (data) => {
       muxer.feed({
         audio: new Uint8Array(data),
@@ -192,71 +194,24 @@ try {
       muxStream.end();
     });
 
-    // Open the input/output stream
-    mic.openStream(
-      null,
-      {
-        deviceId: defaultInputDeviceID,
-        nChannels: 1,
-        firstChannel: 0,
-      },
-      RtAudioFormat.RTAUDIO_SINT16,
-      16000,
-      1024,
-      'Mnemosyne',
-      (data) => {
-        ffmpegAudio.stdin.write(data);
-      },
-      null
-    );
-
-    // const mic = new NodeMic({
-    //   fileType: 'raw',
-    //   encoding: 'signed-integer',
-    //   bitwidth: 16,
-    //   endian: 'little',
-    //   rate: 16000,
-    //   channels: 1,
-    //   device: audioDevice,
-    // });
-    // const micStream = mic.getAudioStream();
-    // micStream.on('data', async (data) => {
-    //   if (!ffmpegAudio.stdin.write(data)) {
-    //     micStream.pause();
-    //     ffmpegAudio.stdin.once('drain', () => {
-    //       micStream.resume();
-    //     });
-    //   }
-    // });
-    // micStream.on('error', (err) => {
-    //   console.log(`mic error: ${err.message}`);
-    // });
-
-    // Video
-
     // Video transcoding stream.
     const ffmpegVideoArgs = `-hide_banner ${ffmpegInputOptions} -s:v ${
       format.width
     }x${format.height} -r:v ${
       format.fpsDenominator / format.fpsNumerator
-    } -i - -f h264 -c:v libx264 -preset veryfast -tune zerolatency -crf 22 -bsf:v h264_mp4toannexb`;
+    } -i - -f h264 -c:v libx264 -preset veryfast -tune zerolatency -crf 22`;
     console.log('FFMPEG Video Args:', ffmpegVideoArgs);
     const ffmpegVideo = spawn('ffmpeg', [
       ...ffmpegVideoArgs.split(/\s+/),
       '-filter:v',
       "setpts='(RTCTIME - RTCSTART) / (TB * 1000000)'",
+      // "drawtext='fontfile=/usr/share/fonts/liberation-mono/LiberationMono-Bold.ttf: text=\"%{localtime\\:%T}\": fontcolor=white@0.8: x=7: y=460'",
       '-',
     ]);
-    // const frameTime = format.fpsNumerator / format.fpsDenominator;
     ffmpegVideo.stdout.on('data', (data) => {
-      // const nowTime = new Date().getTime();
-      // const duration =
-      //   Math.round((nowTime - lastFrameTime) / frameTime) * frameTime;
       muxer.feed({
         video: new Uint8Array(data),
-        // duration,
       });
-      // lastFrameTime += duration;
     });
     ffmpegVideo.stderr.on('data', (data) => {
       console.error(`video: ${data}`);
@@ -284,23 +239,47 @@ try {
       writeStream.end();
     });
 
-    // Allocate memory-mapped buffers and turn the stream on
+    // Allocate memory-mapped buffers and turn the stream on.
     cam.start();
+
+    // Open the input/output stream.
+    mic.openStream(
+      null,
+      {
+        deviceId: defaultInputDeviceID,
+        nChannels: 1,
+        firstChannel: 0,
+      },
+      RtAudioFormat.RTAUDIO_SINT16,
+      16000,
+      1024,
+      'Mnemosyne',
+      (data) => {
+        if (!ffmpegAudio.stdin.writableEnded) {
+          ffmpegAudio.stdin.write(data);
+        }
+      },
+      null
+    );
+
+    // Turn the stream on.
     mic.start();
 
     const start = new Date().getTime();
     const end = start + 1 * 60 * 1000;
-    // let lastFrameTime = start;
 
-    console.time('frames');
+    console.time('Frame Time');
     let frames = 0;
     while (new Date().getTime() < end) {
       // Asynchronously wait until the camera fd is readable and then exchange
       // one of the memory-mapped buffers
       const frame = await cam.getNextFrame();
       frames++;
-      console.timeLog('frames');
-      console.log(frames / ((new Date().getTime() - start) / 1000));
+      console.timeLog('Frame Time');
+      console.log(
+        'Input Frame Rate:',
+        frames / ((new Date().getTime() - start) / 1000)
+      );
 
       // Truncate the buffer to the right image size if needed.
       let buffer = Buffer.from(
@@ -311,7 +290,7 @@ try {
 
       ffmpegVideo.stdin.write(buffer);
     }
-    console.timeEnd('frames');
+    console.timeEnd('Frame Time');
 
     // Turn the stream off and unmap all buffers.
     cam.stop();
@@ -320,11 +299,9 @@ try {
     cam.close();
     mic.closeStream();
 
-    setImmediate(() => {
-      // End the transcode streams.
-      ffmpegVideo.stdin.end();
-      ffmpegAudio.stdin.end();
-    });
+    // End the transcode streams.
+    ffmpegVideo.stdin.end();
+    ffmpegAudio.stdin.end();
   }
 
   main();
