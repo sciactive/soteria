@@ -1,13 +1,14 @@
+import os from 'node:os';
+import net from 'node:net';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { program } from 'commander';
+import { program, Option } from 'commander';
 import updateNotifier from 'update-notifier';
 import { Camera } from 'v4l2-camera-ts';
 import audify from 'audify';
-import JMuxer from 'jmuxer';
 
 const { RtAudio, RtAudioFormat } = audify;
 
@@ -19,6 +20,8 @@ const pkg = JSON.parse(
 );
 
 type Conf = {
+  crf: number;
+  maxBitrate: number;
   audioDevice: string;
   videoDevice: string;
   server: string;
@@ -31,6 +34,22 @@ program
   .version(pkg.version, '-v, --version', 'Print the current version');
 
 program
+  .addOption(
+    new Option(
+      '--crf <crf>',
+      'The Constant Rate Factor, which controls video quality. Set it as low as your CPU can handle. Technically 0-51, but set it to 17-28.'
+    )
+      .default(23)
+      .argParser(parseFloat)
+  )
+  .addOption(
+    new Option(
+      '--max-bitrate <bitrate>',
+      'The maximum bitrate of video to produce in kilobits.'
+    )
+      .default(1500)
+      .argParser(parseFloat)
+  )
   .option(
     '--audio-device <device>',
     'The name of the audio device.',
@@ -48,6 +67,8 @@ program.addHelpText(
   'after',
   `
 Environment Variables:
+  CRF             Same as --crf.
+  MAX_BITRATE     Same as --max-bitrate.
   AUDIO_DEVICE    Same as --audio-device.
   VIDEO_DEVICE    Same as --video-device.
   SERVER          Same as --server.
@@ -68,7 +89,9 @@ try {
   // Parse args.
   program.parse();
   const options = program.opts();
-  let { audioDevice, videoDevice, server, updateCheck } = {
+  let { crf, maxBitrate, audioDevice, videoDevice, server, updateCheck } = {
+    crf: process.env.CRF && parseInt(process.env.CRF),
+    maxBitrate: process.env.MAX_BITRATE && parseInt(process.env.MAX_BITRATE),
     server: process.env.SERVER,
     updateCheck: !['false', 'off', '0'].includes(
       (process.env.UPDATE_CHECK || '').toLowerCase()
@@ -95,6 +118,59 @@ try {
   }
 
   async function main() {
+    // Figure out where our pipes go.
+    const tmpdir = os.tmpdir();
+    const mnemosynedir = path.resolve(tmpdir, 'mnemosyne');
+    try {
+      await fsp.mkdir(mnemosynedir);
+    } catch (e: any) {
+      // ignore
+    }
+    const audiopipe = path.resolve(mnemosynedir, `${process.pid}-audio`);
+    const videopipe = path.resolve(mnemosynedir, `${process.pid}-video`);
+
+    const audioSockets: net.Socket[] = [];
+    const audioServer = net.createServer();
+    await new Promise<void>((resolve) =>
+      audioServer.listen(audiopipe, resolve)
+    );
+    audioServer.on('connection', (socket) => {
+      audioSockets.push(socket);
+      socket.on('error', (err) => {
+        console.error('Socket Error:', err);
+      });
+      socket.on('close', () => {
+        const idx = audioSockets.indexOf(socket);
+        if (idx !== -1) {
+          audioSockets.splice(idx, 1);
+        }
+      });
+    });
+    // audioServer.on('close', async () => {
+    //   await fsp.unlink(audiopipe);
+    // });
+
+    const videoSockets: net.Socket[] = [];
+    const videoServer = net.createServer();
+    await new Promise<void>((resolve) =>
+      videoServer.listen(videopipe, resolve)
+    );
+    videoServer.on('connection', (socket) => {
+      videoSockets.push(socket);
+      socket.on('error', (err) => {
+        console.error('Socket Error:', err);
+      });
+      socket.on('close', () => {
+        const idx = videoSockets.indexOf(socket);
+        if (idx !== -1) {
+          videoSockets.splice(idx, 1);
+        }
+      });
+    });
+    // videoServer.on('close', async () => {
+    //   await fsp.unlink(videopipe);
+    // });
+
     // First, open the camera, because we need the framerate for the muxer.
     const cam = new Camera();
     cam.open(videoDevice);
@@ -110,11 +186,11 @@ try {
 
     const [ffmpegInputOptions, ffmpegTruncateFrame] =
       format.pixelFormatStr === 'YUYV'
-        ? ['-f rawvideo -pix_fmt:v yuyv422', true]
+        ? ['-f:v rawvideo -pix_fmt:v yuyv422', true]
         : format.pixelFormatStr === 'YU12'
-        ? ['-f rawvideo -pix_fmt:v yuv420p', true]
+        ? ['-f:v rawvideo -pix_fmt:v yuv420p', true]
         : format.pixelFormatStr === 'MJPG'
-        ? [`-f jpeg_pipe`, false]
+        ? [`-f:v jpeg_pipe`, false]
         : [null, false];
 
     if (ffmpegInputOptions == null) {
@@ -130,23 +206,9 @@ try {
     });
     writeStream.on('close', async () => {
       console.log('Stream closed.');
-
       await fhandle.close();
-
       console.log('File handle closed.');
     });
-
-    // Muxer
-    const muxer = new JMuxer({
-      node: 'stream',
-      mode: 'both',
-      flushingTime: 0,
-      debug: true,
-      // @ts-ignore
-      // readFpsFromTrack: true,
-      fps: format.fpsDenominator / format.fpsNumerator,
-    });
-    const muxStream = muxer.createStream();
 
     // Audio input stream.
     const mic = new RtAudio();
@@ -171,76 +233,58 @@ try {
 
     console.log('Audio Device:', defaultInputDevice);
 
-    // Audio transcoding stream.
-    const ffmpegAudioArgs = `-hide_banner -f s16le -ar 16000 -ac 1 -i - -f adts -c:a aac`;
+    // Audio transcoding options.
+    const ffmpegAudioArgs = `-f:a s16le -ar 16000 -ac 1 -i unix:${audiopipe}`;
     console.log('FFMPEG Audio Args:', ffmpegAudioArgs);
-    const ffmpegAudio = spawn('ffmpeg', [
-      ...ffmpegAudioArgs.split(/\s+/),
-      '-filter:a',
-      "asetpts='(RTCTIME - RTCSTART) / (TB * 1000000)',asetnsamples=n=1024:p=0",
-      '-',
-    ]);
-    ffmpegAudio.stdout.on('data', (data) => {
-      muxer.feed({
-        audio: new Uint8Array(data),
-        duration: (1024 / 16000) * 1000,
-      });
-    });
-    ffmpegAudio.stderr.on('data', (data) => {
-      console.error(`audio: ${data}`);
-    });
-    ffmpegAudio.on('close', (code) => {
-      console.log(`audio ffmpeg exited with code ${code}`);
-      muxStream.end();
-    });
 
-    // Video transcoding stream.
-    const ffmpegVideoArgs = `-hide_banner ${ffmpegInputOptions} -s:v ${
-      format.width
-    }x${format.height} -r:v ${
-      format.fpsDenominator / format.fpsNumerator
-    } -i - -f h264 -c:v libx264 -preset veryfast -tune zerolatency -crf 22`;
+    // Video transcoding options.
+    const ffmpegVideoArgs = `${ffmpegInputOptions} -s:v ${format.width}x${
+      format.height
+    } -r:v ${format.fpsDenominator / format.fpsNumerator} -i unix:${videopipe}`;
     console.log('FFMPEG Video Args:', ffmpegVideoArgs);
-    const ffmpegVideo = spawn('ffmpeg', [
+
+    // Output options.
+    const ffmpegOutputArgs = `-map 0:a:0 -map 1:v:0 -f mp4 -c:a aac -c:v libx264 -preset veryfast -tune zerolatency -crf ${crf} -maxrate ${maxBitrate}k -bufsize ${
+      maxBitrate * 2
+    }k -g ${Math.floor(
+      (format.fpsDenominator / format.fpsNumerator) * 2
+    )} -movflags frag_keyframe+empty_moov`; // -isync 0
+    console.log('FFMPEG Output Args:', ffmpegOutputArgs);
+
+    // Transcoding process.
+    const ffmpegArgs = [
+      '-hide_banner',
+      '-probesize',
+      '32',
+      // '-nostdin',
+      ...ffmpegAudioArgs.split(/\s+/),
       ...ffmpegVideoArgs.split(/\s+/),
+      ...ffmpegOutputArgs.split(/\s+/),
+      // '-filter:a',
+      // "asetpts='(RTCTIME - RTCSTART) / (TB * 1000000)'",
       '-filter:v',
       "setpts='(RTCTIME - RTCSTART) / (TB * 1000000)'",
       // "drawtext='fontfile=/usr/share/fonts/liberation-mono/LiberationMono-Bold.ttf: text=\"%{localtime\\:%T}\": fontcolor=white@0.8: x=7: y=460'",
-      '-',
-    ]);
-    ffmpegVideo.stdout.on('data', (data) => {
-      muxer.feed({
-        video: new Uint8Array(data),
-      });
-    });
-    ffmpegVideo.stderr.on('data', (data) => {
-      console.error(`video: ${data}`);
-    });
-    ffmpegVideo.on('close', (code) => {
-      console.log(`video ffmpeg exited with code ${code}`);
-      muxStream.end();
-    });
-
-    // Muxer stream.
-    muxStream.on('data', (data) => {
+      'pipe:1',
+    ];
+    console.log('FFMPEG Args:', ffmpegArgs.join(' '));
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+    ffmpeg.stdout.on('data', (data) => {
+      console.log('output chunk length:', data.length);
       if (!writeStream.write(data)) {
-        ffmpegVideo.stdout.pause();
-        ffmpegAudio.stdout.pause();
+        ffmpeg.stdout.pause();
         writeStream.once('drain', () => {
-          ffmpegVideo.stdout.resume();
-          ffmpegAudio.stdout.resume();
+          ffmpeg.stdout.resume();
         });
       }
     });
-    muxStream.on('error', (data) => {
-      console.error(`muxerr: ${data}`);
+    ffmpeg.stderr.on('data', (data) => {
+      console.error(`ffmpeg: ${data}`);
     });
-    muxStream.on('close', () => {
+    ffmpeg.on('close', (code) => {
+      console.log(`ffmpeg exited with code ${code}`);
       writeStream.end();
     });
-
-    // Allocate memory-mapped buffers and turn the stream on.
-    cam.start();
 
     // Open the input/output stream.
     mic.openStream(
@@ -252,16 +296,20 @@ try {
       },
       RtAudioFormat.RTAUDIO_SINT16,
       16000,
-      1024,
+      (format.fpsNumerator / format.fpsDenominator) * 16000,
       'Mnemosyne',
       (data) => {
-        if (!ffmpegAudio.stdin.writableEnded) {
-          ffmpegAudio.stdin.write(data);
+        for (let socket of audioSockets) {
+          if (!socket.writableEnded) {
+            socket.write(data);
+          }
         }
       },
       null
     );
 
+    // Allocate memory-mapped buffers and turn the stream on.
+    cam.start();
     // Turn the stream on.
     mic.start();
 
@@ -288,20 +336,35 @@ try {
           : frame.subarray(0, format.sizeImage)
       );
 
-      ffmpegVideo.stdin.write(buffer);
+      for (let socket of videoSockets) {
+        if (!socket.writableEnded) {
+          socket.write(buffer);
+        }
+      }
     }
     console.timeEnd('Frame Time');
 
-    // Turn the stream off and unmap all buffers.
+    // Turn the streams off and unmap all buffers.
     cam.stop();
     mic.stop();
     mic.clearOutputQueue();
     cam.close();
     mic.closeStream();
 
-    // End the transcode streams.
-    ffmpegVideo.stdin.end();
-    ffmpegAudio.stdin.end();
+    // Close all sockets.
+    for (let socket of audioSockets) {
+      socket.end();
+    }
+    for (let socket of videoSockets) {
+      socket.end();
+    }
+
+    // End the pipes.
+    audioServer.close();
+    videoServer.close();
+
+    // End the transcode stream.
+    ffmpeg.stdin.end();
   }
 
   main();
