@@ -1,5 +1,3 @@
-// @ts-ignore
-import log from 'why-is-node-running'; // should be your first require
 import os from 'node:os';
 import net from 'node:net';
 import path from 'node:path';
@@ -10,9 +8,7 @@ import { spawn } from 'node:child_process';
 import { program, Option } from 'commander';
 import updateNotifier from 'update-notifier';
 import { Camera } from 'v4l2-camera-ts';
-import audify from 'audify';
-
-const { RtAudio, RtAudioFormat } = audify;
+import NodeMic from 'node-mic';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +20,11 @@ const pkg = JSON.parse(
 type Conf = {
   crf: number;
   maxBitrate: number;
+  videoWidth: number;
+  videoHeight: number;
+  videoFramerate: string;
+  pixelFormat: string;
+  samplingRate: number;
   audioDevice: string;
   videoDevice: string;
   server: string;
@@ -39,7 +40,7 @@ program
   .addOption(
     new Option(
       '--crf <crf>',
-      'The Constant Rate Factor, which controls video quality. Set it as low as your CPU can handle. Technically 0-51, but set it to 17-28.'
+      "The Constant Rate Factor, which controls video quality. You usually don't need to change this. Technically 0-51, but set it to 17-28."
     )
       .default(23)
       .argParser(parseFloat)
@@ -47,9 +48,41 @@ program
   .addOption(
     new Option(
       '--max-bitrate <bitrate>',
-      'The maximum bitrate of video to produce in kilobits.'
+      'The maximum bitrate of video to stream in kilobits. CRF will automatically be increased if needed to try to achieve this bitrate.'
     )
       .default(1500)
+      .argParser(parseFloat)
+  )
+  .addOption(
+    new Option('-w, --video-width <width>', 'The video width in pixels.')
+      .default(1280)
+      .argParser(parseFloat)
+  )
+  .addOption(
+    new Option('-h, --video-height <height>', 'The video height in pixels.')
+      .default(720)
+      .argParser(parseFloat)
+  )
+  .addOption(
+    new Option(
+      '-f, --video-framerate <ratio>',
+      'The video frame rate as a ratio. No numerator for integer FPS. (30=1/30 is 30fps, 30000/1001 is 29.97fps,NTSC).'
+    ).default('30')
+  )
+  .addOption(
+    new Option(
+      '--pixel-format <pixel_format>',
+      'The pixel format to request from your camera. Expects YUYV (yuyv422), YU12 (yuv420p), or MJPG (mjpeg).'
+    )
+      .choices(['YUYV', 'YU12', 'MJPG'])
+      .default('YU12')
+  )
+  .addOption(
+    new Option(
+      '--sampling-rate <samplespersecond>',
+      'The audio sampling rate. Higher sampling rate means recording higher frequencies, but using more data. Usually 16000, 44100, or 48000.'
+    )
+      .default(16000)
       .argParser(parseFloat)
   )
   .option(
@@ -69,12 +102,17 @@ program.addHelpText(
   'after',
   `
 Environment Variables:
-  CRF             Same as --crf.
-  MAX_BITRATE     Same as --max-bitrate.
-  AUDIO_DEVICE    Same as --audio-device.
-  VIDEO_DEVICE    Same as --video-device.
-  SERVER          Same as --server.
-  UPDATE_CHECK    Same as --no-update-check when set to "false", "off" or "0".
+  CRF               Same as --crf.
+  MAX_BITRATE       Same as --max-bitrate.
+  VIDEO_WIDTH       Same as --video-width.
+  VIDEO_HEIGHT      Same as --video-height.
+  VIDEO_FRAMERATE   Same as --video-framerate.
+  PIXEL_FORMAT      Same as --pixel-format.
+  SAMPLING_RATE     Same as --sampling-rate.
+  AUDIO_DEVICE      Same as --audio-device.
+  VIDEO_DEVICE      Same as --video-device.
+  SERVER            Same as --server.
+  UPDATE_CHECK      Same as --no-update-check when set to "false", "off" or "0".
 
 Options given on the command line take precedence over options from an environment variable.`
 );
@@ -91,9 +129,27 @@ try {
   // Parse args.
   program.parse();
   const options = program.opts();
-  let { crf, maxBitrate, audioDevice, videoDevice, server, updateCheck } = {
+  let {
+    crf,
+    maxBitrate,
+    videoWidth,
+    videoHeight,
+    videoFramerate,
+    pixelFormat,
+    samplingRate,
+    audioDevice,
+    videoDevice,
+    server,
+    updateCheck,
+  } = {
     crf: process.env.CRF && parseInt(process.env.CRF),
     maxBitrate: process.env.MAX_BITRATE && parseInt(process.env.MAX_BITRATE),
+    videoWidth: process.env.VIDEO_WIDTH && parseInt(process.env.VIDEO_WIDTH),
+    videoHeight: process.env.VIDEO_HEIGHT && parseInt(process.env.VIDEO_HEIGHT),
+    videoFramerate: process.env.VIDEO_FRAMERATE,
+    pixelFormat: process.env.PIXEL_FORMAT,
+    samplingRate:
+      process.env.SAMPLING_RATE && parseInt(process.env.SAMPLING_RATE),
     server: process.env.SERVER,
     updateCheck: !['false', 'off', '0'].includes(
       (process.env.UPDATE_CHECK || '').toLowerCase()
@@ -118,6 +174,17 @@ try {
   if (server == null) {
     throw new Error('WebDAV server address is required.');
   }
+
+  const [requestedFpsNumerator, requestedFpsDenominator] =
+    videoFramerate.split('/');
+  const fpsNumerator =
+    requestedFpsDenominator == null
+      ? 1
+      : Math.floor(parseFloat(requestedFpsNumerator));
+  const fpsDenominator =
+    requestedFpsDenominator == null
+      ? Math.floor(parseFloat(requestedFpsNumerator))
+      : Math.floor(parseFloat(requestedFpsDenominator));
 
   async function main() {
     // Figure out where our pipes (unix sockets) go.
@@ -189,10 +256,10 @@ try {
     const cam = new Camera();
     cam.open(videoDevice);
     cam.setFormat({
-      width: 1280,
-      height: 720,
-      pixelFormatStr: 'YU12',
-      fps: { numerator: 1, denominator: 30 },
+      width: videoWidth,
+      height: videoHeight,
+      pixelFormatStr: pixelFormat,
+      fps: { numerator: fpsNumerator, denominator: fpsDenominator },
     });
 
     const format = cam.queryFormat();
@@ -225,30 +292,27 @@ try {
     });
 
     // Audio input stream.
-    const mic = new RtAudio();
-
-    const defaultInputDeviceID = mic.getDefaultInputDevice();
-    const audioDevices = mic.getDevices();
-    const defaultInputDevice = audioDevices.find(
-      (dev) => dev.id === defaultInputDeviceID
-    );
-
-    if (defaultInputDevice == null) {
-      console.error("Error: Couldn't find default audio input device.");
-      process.exit(1);
-    }
-
-    if (!defaultInputDevice.sampleRates.includes(16000)) {
-      console.error(
-        "Error: Default audio input device doesn't support 16kHz sample rate."
-      );
-      process.exit(1);
-    }
-
-    console.log('Audio Device:', defaultInputDevice);
+    const mic = new NodeMic({
+      fileType: 'raw',
+      encoding: 'signed-integer',
+      bitwidth: 16,
+      endian: 'little',
+      rate: samplingRate,
+      channels: 1,
+      device: audioDevice,
+      threshold: 0,
+    });
+    const micInputStream = mic.getAudioStream();
+    micInputStream.on('data', (data) => {
+      for (let socket of audioSockets) {
+        if (!socket.writableEnded) {
+          socket.write(data);
+        }
+      }
+    });
 
     // Audio transcoding options.
-    const ffmpegAudioArgs = `-f:a s16le -ar 16000 -ac 1 -i unix:${audiopipe}`;
+    const ffmpegAudioArgs = `-f:a s16le -ar ${samplingRate} -ac 1 -i unix:${audiopipe}`;
     console.log('FFMPEG Audio Args:', ffmpegAudioArgs);
 
     // Video transcoding options.
@@ -258,7 +322,7 @@ try {
     console.log('FFMPEG Video Args:', ffmpegVideoArgs);
 
     // Output options.
-    const ffmpegOutputArgs = `-map 0:a:0 -map 1:v:0 -f mp4 -c:a aac -c:v libx264 -preset veryfast -tune zerolatency -crf ${crf} -maxrate ${maxBitrate}k -bufsize ${
+    const ffmpegOutputArgs = `-f mp4 -c:a aac -c:v libx264 -preset veryfast -tune zerolatency -crf ${crf} -maxrate ${maxBitrate}k -bufsize ${
       maxBitrate * 2
     }k -g ${Math.floor(
       (format.fpsDenominator / format.fpsNumerator) * 2
@@ -297,28 +361,6 @@ try {
       writeStream.end();
     });
 
-    // Open the input/output stream.
-    mic.openStream(
-      null,
-      {
-        deviceId: defaultInputDeviceID,
-        nChannels: 1,
-        firstChannel: 0,
-      },
-      RtAudioFormat.RTAUDIO_SINT16,
-      16000,
-      (format.fpsNumerator / format.fpsDenominator) * 16000,
-      'Mnemosyne',
-      (data) => {
-        for (let socket of audioSockets) {
-          if (!socket.writableEnded) {
-            socket.write(data);
-          }
-        }
-      },
-      null
-    );
-
     // Allocate memory-mapped buffers and turn the stream on.
     cam.start();
     // Turn the stream on.
@@ -356,11 +398,10 @@ try {
     console.timeEnd('Frame Time');
 
     // Turn the streams off and unmap all buffers.
+    micInputStream.end();
     cam.stop();
     mic.stop();
-    mic.clearOutputQueue();
     cam.close();
-    mic.closeStream();
 
     // Close all sockets.
     for (let socket of audioSockets) {
@@ -376,10 +417,6 @@ try {
 
     // End the transcode stream.
     ffmpeg.stdin.end();
-
-    setTimeout(function () {
-      log(); // logs out active handles that are keeping node running
-    }, 100);
   }
 
   main();

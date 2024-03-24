@@ -42,11 +42,10 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
-    "audify": "^1.8.2",
     "commander": "^11.0.0",
+    "node-mic": "^1.0.1",
     "update-notifier": "^6.0.2",
-    "v4l2-camera-ts": "^1.0.1",
-    "why-is-node-running": "^2.2.2"
+    "v4l2-camera-ts": "^1.0.1"
   },
   "engines": {
     "node": ">=18"
