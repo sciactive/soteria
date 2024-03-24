@@ -1,3 +1,5 @@
+// @ts-ignore
+import log from 'why-is-node-running'; // should be your first require
 import os from 'node:os';
 import net from 'node:net';
 import path from 'node:path';
@@ -118,7 +120,7 @@ try {
   }
 
   async function main() {
-    // Figure out where our pipes go.
+    // Figure out where our pipes (unix sockets) go.
     const tmpdir = os.tmpdir();
     const mnemosynedir = path.resolve(tmpdir, 'mnemosyne');
     try {
@@ -144,11 +146,17 @@ try {
         if (idx !== -1) {
           audioSockets.splice(idx, 1);
         }
+        console.log('Audio socket closed.');
       });
     });
-    // audioServer.on('close', async () => {
-    //   await fsp.unlink(audiopipe);
-    // });
+    audioServer.on('close', async () => {
+      try {
+        await fsp.unlink(audiopipe);
+      } catch (e: any) {
+        // ignore
+      }
+      console.log('Audio pipe closed.');
+    });
 
     const videoSockets: net.Socket[] = [];
     const videoServer = net.createServer();
@@ -165,11 +173,17 @@ try {
         if (idx !== -1) {
           videoSockets.splice(idx, 1);
         }
+        console.log('Audio socket closed.');
       });
     });
-    // videoServer.on('close', async () => {
-    //   await fsp.unlink(videopipe);
-    // });
+    videoServer.on('close', async () => {
+      try {
+        await fsp.unlink(videopipe);
+      } catch (e: any) {
+        // ignore
+      }
+      console.log('Video pipe closed.');
+    });
 
     // First, open the camera, because we need the framerate for the muxer.
     const cam = new Camera();
@@ -248,7 +262,7 @@ try {
       maxBitrate * 2
     }k -g ${Math.floor(
       (format.fpsDenominator / format.fpsNumerator) * 2
-    )} -movflags frag_keyframe+empty_moov`; // -isync 0
+    )} -movflags frag_keyframe+empty_moov`;
     console.log('FFMPEG Output Args:', ffmpegOutputArgs);
 
     // Transcoding process.
@@ -256,12 +270,9 @@ try {
       '-hide_banner',
       '-probesize',
       '32',
-      // '-nostdin',
       ...ffmpegAudioArgs.split(/\s+/),
       ...ffmpegVideoArgs.split(/\s+/),
       ...ffmpegOutputArgs.split(/\s+/),
-      // '-filter:a',
-      // "asetpts='(RTCTIME - RTCSTART) / (TB * 1000000)'",
       '-filter:v',
       "setpts='(RTCTIME - RTCSTART) / (TB * 1000000)'",
       // "drawtext='fontfile=/usr/share/fonts/liberation-mono/LiberationMono-Bold.ttf: text=\"%{localtime\\:%T}\": fontcolor=white@0.8: x=7: y=460'",
@@ -314,7 +325,7 @@ try {
     mic.start();
 
     const start = new Date().getTime();
-    const end = start + 1 * 60 * 1000;
+    const end = start + 10 * 1000;
 
     console.time('Frame Time');
     let frames = 0;
@@ -365,6 +376,10 @@ try {
 
     // End the transcode stream.
     ffmpeg.stdin.end();
+
+    setTimeout(function () {
+      log(); // logs out active handles that are keeping node running
+    }, 100);
   }
 
   main();

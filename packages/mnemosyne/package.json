@@ -45,7 +45,8 @@
     "audify": "^1.8.2",
     "commander": "^11.0.0",
     "update-notifier": "^6.0.2",
-    "v4l2-camera-ts": "^1.0.1"
+    "v4l2-camera-ts": "^1.0.1",
+    "why-is-node-running": "^2.2.2"
   },
   "engines": {
     "node": ">=18"
