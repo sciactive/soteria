@@ -4,3 +4,4 @@ node_modules
 /packages/*/bin
 /CHANGELOG.md
 /packages/*/CHANGELOG.md
+/testroot

@@ -45,7 +45,8 @@
     "commander": "^11.0.0",
     "node-mic": "^1.0.1",
     "update-notifier": "^6.0.2",
-    "v4l2-camera-ts": "^1.0.1"
+    "v4l2-camera-ts": "^1.0.1",
+    "webdav": "^5.5.0"
   },
   "engines": {
     "node": ">=18"
