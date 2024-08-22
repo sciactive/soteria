@@ -11,7 +11,7 @@
     "watch": "lerna run watch --concurrency=20",
     "prepare": "husky install && npm run lint",
     "postinstall": "npm run build",
-    "test:webdav": "docker run --rm --name soteria-nephele --user \"$(id -u):$(id -g)\" -e AUTH_PASSWORD=123soteria -e AUTH_USERNAME=soteria -v ./testroot/:/data/ -p 8080:80 sciactive/nephele",
+    "test:webdav": "mkdir -p testroot && docker run --rm --name soteria-nephele --user \"$(id -u):$(id -g)\" -e AUTH_PASSWORD=123soteria -e AUTH_USERNAME=soteria -v ./testroot/:/data/ -p 8080:80 sciactive/nephele",
     "test": "lerna run test --concurrency=1 --stream --no-prefix --no-bail -- -- --passWithNoTests"
   },
   "repository": {
@@ -28,16 +28,16 @@
     "packages/*"
   ],
   "devDependencies": {
-    "@commitlint/cli": "^17.7.1",
-    "@commitlint/config-conventional": "^17.7.0",
-    "@tsconfig/recommended": "^1.0.2",
-    "@types/debug": "^4.1.8",
-    "debug": "^4.3.4",
-    "husky": "^8.0.3",
-    "lerna": "^7.2.0",
-    "lint-staged": "^14.0.1",
-    "prettier": "^2.8.8",
-    "prettier-plugin-svelte": "^2.10.1"
+    "@commitlint/cli": "^19.4.0",
+    "@commitlint/config-conventional": "^19.2.2",
+    "@tsconfig/recommended": "^1.0.7",
+    "@types/debug": "^4.1.12",
+    "debug": "^4.3.6",
+    "husky": "^9.1.5",
+    "lerna": "^8.1.8",
+    "lint-staged": "^15.2.9",
+    "prettier": "^3.3.3",
+    "prettier-plugin-svelte": "^3.2.6"
   },
   "engines": {
     "node": ">=18"

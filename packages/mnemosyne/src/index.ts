@@ -16,7 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const pkg = JSON.parse(
-  fs.readFileSync(path.resolve(__dirname, '..', 'package.json')).toString()
+  fs.readFileSync(path.resolve(__dirname, '..', 'package.json')).toString(),
 );
 
 type Conf = {
@@ -48,65 +48,65 @@ program
   .option(
     '-n, --name <name>',
     'The name of this camera. (Defaults to the system hostname.)',
-    os.hostname()
+    os.hostname(),
   )
   .option(
     '--audio-device <device>',
     'The name of the audio device.',
-    'plughw:0,0'
+    'plughw:0,0',
   )
   .addOption(
     new Option(
       '--sampling-rate <samplespersecond>',
-      'The audio sampling rate. Higher sampling rate means recording higher frequencies, but using more data. Usually 16000, 44100, or 48000.'
+      'The audio sampling rate. Higher sampling rate means recording higher frequencies, but using more data. Usually 16000, 44100, or 48000.',
     )
       .default(16000)
-      .argParser(parseFloat)
+      .argParser(parseFloat),
   )
   .option(
     '--video-device <device>',
     'The filename of the video device.',
-    '/dev/video0'
+    '/dev/video0',
   )
   .addOption(
     new Option(
       '--crf <crf>',
-      "The Constant Rate Factor, which controls video quality. You usually don't need to change this. Technically 0-51, but set it to 17-28."
+      "The Constant Rate Factor, which controls video quality. You usually don't need to change this. Technically 0-51, but set it to 17-28.",
     )
       .default(23)
-      .argParser(parseFloat)
+      .argParser(parseFloat),
   )
   .addOption(
     new Option(
       '--max-bitrate <bitrate>',
-      'The maximum bitrate of video to stream in kilobits. CRF will automatically be increased if needed to try to achieve this bitrate.'
+      'The maximum bitrate of video to stream in kilobits. CRF will automatically be increased if needed to try to achieve this bitrate.',
     )
       .default(1500)
-      .argParser(parseFloat)
+      .argParser(parseFloat),
   )
   .addOption(
     new Option('-w, --video-width <width>', 'The video width in pixels.')
       .default(1280)
-      .argParser(parseFloat)
+      .argParser(parseFloat),
   )
   .addOption(
     new Option('-h, --video-height <height>', 'The video height in pixels.')
       .default(720)
-      .argParser(parseFloat)
+      .argParser(parseFloat),
   )
   .addOption(
     new Option(
       '-f, --video-framerate <ratio>',
-      'The video frame rate as a ratio. No numerator for integer FPS. (30=1/30 is 30fps, 30000/1001 is 29.97fps,NTSC).'
-    ).default('30')
+      'The video frame rate as a ratio. No numerator for integer FPS. (30=1/30 is 30fps, 30000/1001 is 29.97fps,NTSC).',
+    ).default('30'),
   )
   .addOption(
     new Option(
       '--pixel-format <pixel_format>',
-      'The pixel format to request from your camera. Expects YUYV (yuyv422), YU12 (yuv420p), or MJPG (mjpeg).'
+      'The pixel format to request from your camera. Expects YUYV (yuyv422), YU12 (yuv420p), or MJPG (mjpeg).',
     )
       .choices(['YUYV', 'YU12', 'MJPG'])
-      .default('YU12')
+      .default('YU12'),
   )
   .option('--no-update-check', "Don't check for updates.");
 
@@ -129,7 +129,7 @@ Environment Variables:
   PIXEL_FORMAT      Same as --pixel-format.
   UPDATE_CHECK      Same as --no-update-check when set to "false", "off" or "0".
 
-Options given on the command line take precedence over options from an environment variable.`
+Options given on the command line take precedence over options from an environment variable.`,
 );
 
 program.addHelpText(
@@ -137,7 +137,7 @@ program.addHelpText(
   `
 Soteria repo: https://github.com/sciactive/soteria
 Copyright (C) 2024 SciActive, Inc
-https://sciactive.com/`
+https://sciactive.com/`,
 );
 
 try {
@@ -173,7 +173,7 @@ try {
     password: process.env.DAV_PASSWORD,
     name: process.env.CAMERA_NAME,
     updateCheck: !['false', 'off', '0'].includes(
-      (process.env.UPDATE_CHECK || '').toLowerCase()
+      (process.env.UPDATE_CHECK || '').toLowerCase(),
     ),
     ...options,
     ...(process.env.AUDIO_DEVICE != null
@@ -223,7 +223,7 @@ try {
       path.resolve(cameraDirectory, 'test.mp4'),
       {
         overwrite: true,
-      }
+      },
     );
     writeStream.on('finish', () => {
       console.log('Stream finished.');
@@ -514,7 +514,7 @@ async function pipeRawVideoStream({
     let buffer = Buffer.from(
       !truncateFrame || frame.length === format.sizeImage
         ? frame
-        : frame.subarray(0, format.sizeImage)
+        : frame.subarray(0, format.sizeImage),
     );
 
     for (let socket of videoSockets) {
@@ -570,10 +570,10 @@ async function getTranscodeStream({
     format.pixelFormatStr === 'YUYV'
       ? ['-f:v rawvideo -pix_fmt:v yuyv422', true]
       : format.pixelFormatStr === 'YU12'
-      ? ['-f:v rawvideo -pix_fmt:v yuv420p', true]
-      : format.pixelFormatStr === 'MJPG'
-      ? [`-f:v jpeg_pipe`, false]
-      : [null, false];
+        ? ['-f:v rawvideo -pix_fmt:v yuv420p', true]
+        : format.pixelFormatStr === 'MJPG'
+          ? [`-f:v jpeg_pipe`, false]
+          : [null, false];
 
   if (ffmpegInputOptions == null) {
     console.error("Error: Couldn't set pixel format to a supported format.");
@@ -594,7 +594,7 @@ async function getTranscodeStream({
   const ffmpegOutputArgs = `-f mp4 -c:a aac -c:v libx264 -preset veryfast -tune zerolatency -crf ${crf} -maxrate ${maxBitrate}k -bufsize ${
     maxBitrate * 2
   }k -g ${Math.floor(
-    (format.fpsDenominator / format.fpsNumerator) * 2
+    (format.fpsDenominator / format.fpsNumerator) * 2,
   )} -movflags frag_keyframe+empty_moov`;
   console.log('FFMPEG Output Args:', ffmpegOutputArgs);
 

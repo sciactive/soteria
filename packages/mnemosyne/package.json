@@ -34,19 +34,19 @@
   },
   "homepage": "https://github.com/sciactive/soteria#readme",
   "devDependencies": {
-    "@tsconfig/recommended": "^1.0.2",
-    "@types/jest": "^29.5.4",
-    "@types/update-notifier": "^6.0.5",
-    "jest": "^29.6.4",
-    "ts-jest": "^29.1.1",
-    "typescript": "^5.2.2"
+    "@tsconfig/recommended": "^1.0.7",
+    "@types/jest": "^29.5.12",
+    "@types/update-notifier": "^6.0.8",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.4",
+    "typescript": "^5.5.4"
   },
   "dependencies": {
-    "commander": "^11.0.0",
+    "commander": "^12.1.0",
     "node-mic": "^1.0.1",
-    "update-notifier": "^6.0.2",
+    "update-notifier": "^7.2.0",
     "v4l2-camera-ts": "^1.0.1",
-    "webdav": "^5.5.0"
+    "webdav": "^5.7.1"
   },
   "engines": {
     "node": ">=18"

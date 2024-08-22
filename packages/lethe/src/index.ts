@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const pkg = JSON.parse(
-  fs.readFileSync(path.resolve(__dirname, '..', 'package.json')).toString()
+  fs.readFileSync(path.resolve(__dirname, '..', 'package.json')).toString(),
 );
 
 type Conf = {
@@ -32,7 +32,7 @@ Environment Variables:
   SERVER          Same as --server.
   UPDATE_CHECK    Same as --no-update-check when set to "false", "off" or "0".
 
-Options given on the command line take precedence over options from an environment variable.`
+Options given on the command line take precedence over options from an environment variable.`,
 );
 
 program.addHelpText(
@@ -40,7 +40,7 @@ program.addHelpText(
   `
 Soteria repo: https://github.com/sciactive/soteria
 Copyright (C) 2024 SciActive, Inc
-https://sciactive.com/`
+https://sciactive.com/`,
 );
 
 try {
@@ -50,7 +50,7 @@ try {
   let { server, updateCheck } = {
     server: process.env.SERVER,
     updateCheck: !['false', 'off', '0'].includes(
-      (process.env.UPDATE_CHECK || '').toLowerCase()
+      (process.env.UPDATE_CHECK || '').toLowerCase(),
     ),
     ...options,
   } as Conf;
