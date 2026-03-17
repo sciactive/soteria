@@ -24,6 +24,12 @@ It is highly recommended to use [Nephele WebDAV Server](https://github.com/sciac
 
 Nephele can be run on the same system as Mnemosyne using an S3 compatible cloud storage solution, and even encrypt the video _before_ it is sent to the server. This allows you to create an end-to-end encrypted cloud security camera solution that **only you** have access to. Most of your security camera footage is of you and your family. Don't let big companies or hackers spy on you.
 
+# Human Authorship
+
+This project adheres to the [SciActive Human Contribution Policy](HUMAN-CONTRIBUTION-POLICY.md).
+
+[![Seal of Human Authorship](https://sciactive.com/wp-content/uploads/2026/03/Seal-of-Human-Authorship-300.png)](https://sciactive.com/human-contribution-policy/)
+
 # License
 
 Copyright 2024 SciActive Inc
